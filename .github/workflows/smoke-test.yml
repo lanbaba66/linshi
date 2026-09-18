@@ -1,0 +1,19 @@
+name: Docker smoke test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build visualization image
+        run: docker build -t linshi-data-viz .
+
+      - name: Run import smoke test
+        run: docker run --rm linshi-data-viz

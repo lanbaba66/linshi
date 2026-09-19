@@ -1,0 +1,59 @@
+name: Run Streamlit demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - app.py
+      - scripts/demo_check.py
+      - requirements.txt
+      - Dockerfile
+      - .github/workflows/run-demo.yml
+  workflow_dispatch:
+
+jobs:
+  run-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build visualization image
+        run: docker build -t linshi-data-viz .
+
+      - name: Run deterministic data/model check
+        run: |
+          mkdir -p outputs
+          docker run --rm linshi-data-viz python scripts/demo_check.py | tee outputs/demo_result.json
+
+      - name: Start Streamlit
+        run: |
+          docker run -d --name linshi-streamlit -p 8501:8501 \
+            linshi-data-viz \
+            streamlit run app.py --server.address=0.0.0.0 --server.port=8501 --server.headless=true
+
+      - name: Wait for Streamlit health endpoint
+        run: |
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8501/_stcore/health; then
+              echo "Streamlit health check passed"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Streamlit failed to become healthy"
+          docker logs linshi-streamlit || true
+          exit 1
+
+      - name: Capture Streamlit logs
+        if: always()
+        run: |
+          mkdir -p outputs
+          docker logs linshi-streamlit > outputs/streamlit.log 2>&1 || true
+
+      - name: Upload run results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: streamlit-demo-results
+          path: outputs/

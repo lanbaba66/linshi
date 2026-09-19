@@ -22,9 +22,11 @@ jobs:
         run: docker build -t linshi-data-viz .
 
       - name: Run deterministic data/model check
+        shell: bash
         run: |
+          set -o pipefail
           mkdir -p outputs
-          docker run --rm linshi-data-viz python scripts/demo_check.py | tee outputs/demo_result.json
+          docker run --rm linshi-data-viz python -m scripts.demo_check | tee outputs/demo_result.json
 
       - name: Start Streamlit
         run: |

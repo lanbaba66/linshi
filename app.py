@@ -159,51 +159,177 @@ def main():
         st.warning("当前筛选条件下没有房源，请调整筛选范围。")
         return
 
-    st.subheader("1. 各区域房价分布")
-    fig_box = px.box(
-        filtered_df,
-        x="district",
-        y="price",
-        color="district",
-        points=False,
-        labels={"district": "区域", "price": "总价（万元）"},
-        title="不同区域总价分布",
+    # 1. 房价分布（直方图 + 箱线图）
+    st.subheader("1. 房价分布概览")
+    fig_price, axes = plt.subplots(nrows=2, figsize=(12, 7))
+    axes[0].hist(
+        filtered_df["price"], bins=30, color="skyblue", edgecolor="black", alpha=0.7
     )
-    st.plotly_chart(fig_box, use_container_width=True)
+    axes[0].axvline(
+        filtered_df["price"].mean(),
+        color="red",
+        linestyle="--",
+        label=f"均值({filtered_df['price'].mean():.0f})",
+    )
+    axes[0].axvline(
+        filtered_df["price"].median(),
+        color="green",
+        linestyle="--",
+        label=f"中位数({filtered_df['price'].median():.0f})",
+    )
+    axes[0].set_title("房价分布直方图")
+    axes[0].set_xlabel("总价（万元）")
+    axes[0].set_ylabel("频数")
+    axes[0].legend()
 
-    st.subheader("2. 面积与房价关系")
+    axes[1].boxplot(
+        filtered_df["price"],
+        vert=True,
+        patch_artist=True,
+        boxprops=dict(facecolor="lightgreen"),
+    )
+    axes[1].set_title("房价箱线图")
+    axes[1].set_ylabel("总价（万元）")
+    plt.tight_layout()
+    st.pyplot(fig_price)
+
+    # 2. 相关性热力图
+    st.subheader("2. 特征相关性热力图")
+    numeric_cols = ["price", "area", "bedrooms", "bathrooms", "age", "distance_to_center"]
+    corr = filtered_df[numeric_cols].corr()
+    fig_corr, ax_corr = plt.subplots(figsize=(8, 6))
+    cax = ax_corr.matshow(corr, cmap="coolwarm", vmin=-1, vmax=1)
+    fig_corr.colorbar(cax)
+    ax_corr.set_xticks(range(len(corr.columns)))
+    ax_corr.set_yticks(range(len(corr.columns)))
+    ax_corr.set_xticklabels(corr.columns, rotation=30)
+    ax_corr.set_yticklabels(corr.columns)
+    for i in range(len(corr.columns)):
+        for j in range(len(corr.columns)):
+            ax_corr.text(
+                j,
+                i,
+                f"{corr.iloc[i, j]:.2f}",
+                ha="center",
+                va="center",
+                color="black",
+            )
+    ax_corr.set_title("特征相关性热力图", pad=20)
+    st.pyplot(fig_corr)
+
+    # 3. 面积 VS 价格
+    st.subheader("3. 面积与房价关系")
     fig_area, ax_area = plt.subplots(figsize=(10, 5))
-    ax_area.scatter(filtered_df["area"], filtered_df["price"], alpha=0.4, s=15, c="royalblue")
-    z = np.polyfit(filtered_df["area"], filtered_df["price"], 1)
+    ax_area.scatter(
+        filtered_df["area"], filtered_df["price"], alpha=0.5, s=20, c="steelblue"
+    )
+    z = np.polyfit(filtered_df["area"], filtered_df["price"], deg=1)
     p = np.poly1d(z)
-    x_line = np.linspace(filtered_df["area"].min(), filtered_df["area"].max(), 100)
-    ax_area.plot(x_line, p(x_line), color="red", linewidth=2, label="趋势线")
-    ax_area.set_xlabel("面积（㎡）")
+    x_line = np.linspace(filtered_df["area"].min(), filtered_df["area"].max(), num=100)
+    ax_area.plot(
+        x_line,
+        p(x_line),
+        color="red",
+        linewidth=2,
+        label=f"拟合: price={z[0]:.2f}*area+{z[1]:.2f}",
+    )
+    ax_area.set_xlabel("建筑面积（㎡）")
     ax_area.set_ylabel("总价（万元）")
     ax_area.legend()
     ax_area.grid(True, linestyle="--", alpha=0.5)
     st.pyplot(fig_area)
 
-    st.subheader("3. 房龄 vs 房价")
+    # 4. 各区域房价箱线图
+    st.subheader("4. 各区域房价分布")
+    districts_order = ["浦东", "黄浦", "静安", "徐汇"]
+    if len(filtered_df) > 0:
+        valid_districts = [
+            d for d in districts_order if d in filtered_df["district"].unique()
+        ]
+        if valid_districts:
+            data_to_plot = [
+                filtered_df[filtered_df["district"] == d]["price"]
+                for d in valid_districts
+            ]
+            fig_dist_box, ax_dist_box = plt.subplots(figsize=(10, 5))
+            bp = ax_dist_box.boxplot(
+                data_to_plot, tick_labels=valid_districts, patch_artist=True
+            )
+            colors = ["#ff9999", "#66b2ff", "#99ff99", "#ffcc99"]
+            for patch, color in zip(bp["boxes"], colors[: len(data_to_plot)]):
+                patch.set_facecolor(color)
+            ax_dist_box.set_ylabel("总价（万元）")
+            ax_dist_box.grid(axis="y", linestyle="--", alpha=0.5)
+            st.pyplot(fig_dist_box)
+        else:
+            st.warning("当前筛选条件下没有有效区域数据，无法绘制区域房价图。")
+    else:
+        st.warning("当前筛选条件没有房源数据，请调整条件。")
+
+    # 5. 装修情况 VS 房价
+    st.subheader("5. 装修状态与房价")
+    renovation_order = ["毛坯", "简装", "精装", "豪装"]
+    renovation_states = (
+        filtered_df.groupby("renovation")["price"]
+        .agg(["mean", "std"])
+        .reindex(renovation_order)
+        .dropna()
+    )
+    if len(renovation_states):
+        fig_reno, ax_reno = plt.subplots(figsize=(10, 5))
+        bars = ax_reno.bar(
+            renovation_states.index,
+            renovation_states["mean"],
+            yerr=renovation_states["std"],
+            capsize=5,
+            color=["#8bb6b2", "#cdbe70", "#ffd700", "#8b6508"][: len(renovation_states)],
+            edgecolor="black",
+        )
+        ax_reno.set_ylabel("平均总价（万元）")
+        ax_reno.grid(axis="y", linestyle="--", alpha=0.5)
+        for bar in bars:
+            height = bar.get_height()
+            ax_reno.text(
+                bar.get_x() + bar.get_width() / 2,
+                height + 5,
+                f"{height:.0f}",
+                ha="center",
+                va="bottom",
+            )
+        st.pyplot(fig_reno)
+    else:
+        st.warning("当前筛选条件下没有装修状态数据。")
+
+    # 6. 房龄 VS 价格
+    st.subheader("6. 房龄与房价关系")
     fig_age, ax_age = plt.subplots(figsize=(10, 5))
     ax_age.scatter(filtered_df["age"], filtered_df["price"], alpha=0.4, s=15, c="darkgreen")
     z2 = np.polyfit(filtered_df["age"], filtered_df["price"], deg=2)
     p2 = np.poly1d(z2)
     x_line2 = np.linspace(filtered_df["age"].min(), filtered_df["age"].max(), num=100)
-    ax_age.plot(x_line2, p2(x_line2), color="red", linewidth=2, label="趋势线")
+    ax_age.plot(x_line2, p2(x_line2), color="red", linewidth=2, label="二次拟合")
     ax_age.set_xlabel("房龄（年）")
     ax_age.set_ylabel("总价（万元）")
     ax_age.legend()
     ax_age.grid(True, linestyle="--", alpha=0.5)
     st.pyplot(fig_age)
 
-    st.subheader("4. 距离市中心 vs 房价")
+    # 7. 距离市中心 VS 房价
+    st.subheader("7. 距离市中心与房价")
     fig_dist, ax_dist = plt.subplots(figsize=(10, 5))
-    ax_dist.scatter(filtered_df["distance_to_center"], filtered_df["price"], alpha=0.4, s=15, c="purple")
+    ax_dist.scatter(
+        filtered_df["distance_to_center"],
+        filtered_df["price"],
+        alpha=0.4,
+        s=15,
+        c="purple",
+    )
     z3 = np.polyfit(filtered_df["distance_to_center"], filtered_df["price"], deg=1)
     p3 = np.poly1d(z3)
     x_line3 = np.linspace(
-        filtered_df["distance_to_center"].min(), filtered_df["distance_to_center"].max(), num=100
+        filtered_df["distance_to_center"].min(),
+        filtered_df["distance_to_center"].max(),
+        num=100,
     )
     ax_dist.plot(x_line3, p3(x_line3), color="red", linewidth=2, label="趋势线")
     ax_dist.set_xlabel("距市中心距离（km）")
@@ -212,9 +338,14 @@ def main():
     ax_dist.grid(True, linestyle="--", alpha=0.5)
     st.pyplot(fig_dist)
 
-    st.subheader("5. 区域与装修情况交互分析")
+    # 8. 区域 × 装修交互分析
+    st.subheader("8. 区域与装修情况交互分析")
     pivot = filtered_df.pivot_table(
-        values="price", index="district", columns="renovation", aggfunc="mean", fill_value=0
+        values="price",
+        index="district",
+        columns="renovation",
+        aggfunc="mean",
+        fill_value=0,
     )
     fig_pivot = px.imshow(
         pivot,
@@ -263,7 +394,9 @@ def main():
             )
 
         if st.button("预测房价"):
-            input_data = np.array([[area_input, bedrooms_input, bathrooms_input, age_input, dist_input]])
+            input_data = np.array(
+                [[area_input, bedrooms_input, bathrooms_input, age_input, dist_input]]
+            )
             pred_price = result["model"].predict(input_data)[0]
             st.success(f"预测总价：{pred_price:.1f} 万元")
 
